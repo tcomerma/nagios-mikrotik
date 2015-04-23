@@ -1,0 +1,208 @@
+#!/bin/bash
+#
+#Toni Comerma - acomerma.q@tv3.cat
+# Based on check_mikrorik_mem from Jakub Zemanek - zemanekj@vspj.cz
+#
+
+PROGNAME=`basename $0`
+PROGPATH=`dirname $0`
+REVISION=`echo '$Revision: 1.1 $' | sed -e 's/[^0-9.]//g'`
+
+
+. $PROGPATH/utils.sh
+
+print_usage() {
+    echo -e "Usage: $PROGNAME -H <ip_address> [-w <number>] [-c <number>] [-C <community>]
+[-P <snmp version>] [-U <username>] [-L <secLevel>] [-a <authproto>]
+[-x <privproto>] [-A <authpassword>] [-X <privpassword>]"
+    echo -e "\nOptions:"
+    echo -e " -V, --version\n    Print version information"
+    echo -e " -h, --help\n    Print detailed help screen"
+    echo -e " -H, --hostname=ADDRESS\n    Host name od IP address"
+    echo -e " -w, --warning=INTEGER\n    Warning treshold 0-100 (default 80)"
+    echo -e " -c, --critical=INTEGER\n    Critical treshold 0-100 (default 95)"
+    echo -e " -C, --community=STRING\n    Optional community string for SNMP communication (default is public)"
+    echo -e " -P, --protocol=[1|2c|3]\n    SNMP protocol version(default is 2c)"
+    echo -e " -L, --seclevel=[noAuthNoPriv|authNoPriv|authPriv]\n    SNMPv3 securityLevel"
+    echo -e " -a, --authproto=[MD5|SHA]\n    SNMPv3 auth proto"
+    echo -e " -x, --privproto=[DES|AES]\n    SNMPv3 priv proto"
+    echo -e " -U, --secname=USERNAME\n    SNMPv3 username"
+    echo -e " -A, --authpassword=PASSWORD\n    SNMPv3 authentication password"
+    echo -e " -X, --privpassword=PASSWORD\n    SNMPv3 privacy password"
+
+echo "
+This plugin uses the 'snmpget' command included with the NET-SNMP package.
+if you don't have the package installed, you will need to download it from
+http://net-snmp.sourceforge.net before you can use this plugin."
+}
+
+print_help() {
+    print_revision $PROGNAME $REVISION
+    echo ""
+    echo "This plugin checks memory status and returns usage in percent."
+    echo ""
+    print_usage
+    echo ""
+    support
+}
+
+#Set default values
+critical=95
+warning=80
+community=""
+protocol=""
+secname=""
+authproto=""
+privproto=""
+privpasswd=""
+authpassword=""
+
+#Process parameters
+while test -n "$1"; do
+	case "$1" in
+			--help)
+			    print_help
+			    exit $STATE_OK
+			    ;;
+			-h)
+			    print_help
+			    exit $STATE_OK
+			    ;;
+			--version)
+			    print_revision $PROGNAME $REVISION
+			    exit $STATE_OK
+			    ;;
+			-V)
+			    print_revision $PROGNAME $REVISION
+			    exit $STATE_OK
+			    ;;
+			-w)
+			    warning=$2
+			    shift
+			    ;;
+			--warning*)
+			    warning=" $(echo $1 | cut -d "=" -f 2)"
+			    ;;
+			-c)
+			    critical=$2
+			    shift
+			    ;;
+			--critical*)
+			    critical=" $(echo $1 | cut -d "=" -f 2)"
+			    ;;
+			-H)
+			    Host=" $2"
+			    shift
+			    ;;
+			--hostname*)
+			    Host=" $(echo $1 | cut -d "=" -f 2)"
+			    ;;
+			-C)
+			    community=" -c $2"
+			    shift
+			    ;;
+			--community*)
+			    community=" -c $(echo $1 | cut -d "=" -f 2)"
+			    ;;
+			-P)
+			    protocol=" -v $2"
+			    shift
+			    ;;
+			--protocol*)
+			    protocol=" -v $(echo $1 | cut -d "=" -f 2)"
+			    ;;
+			-U)
+			    secname=" -u $2"
+			    shift
+			    ;;
+			--secname*)
+			    secname=" -u $(echo $1 | cut -d "=" -f 2)"
+			    ;;
+			-a)
+			    authproto=" -a $2"
+			    shift
+			    ;;
+			--authproto*)
+			    authproto=" -a $(echo $1 | cut -d "=" -f 2)"
+			    ;;
+			-x)
+			    privproto=" -x $2"
+			    shift
+			    ;;
+			--privproto*)
+			    privproto=" -x $(echo $1 | cut -d "=" -f 2)"
+			    ;;
+			-A)
+			    authpassword=" -A $2"
+			    shift
+			    ;;
+			--authpassword*)
+			    authpassword=" -A $(echo $1 | cut -d "=" -f 2)"
+			    ;;
+			-X)
+			    privpasswd=" -X $2"
+			    shift
+			    ;;
+			--privpassword*)
+			    privpasswd=" -X $(echo $1 | cut -d "=" -f 2)"
+			    ;;
+			-L)
+			    seclevel=" -l $2"
+			    shift
+			    ;;
+			--seclevel*)
+			    seclevel=" -l $(echo $1 | cut -d "=" -f 2)"
+			    ;;
+
+			*)
+			    echo "Unknown argument: $1"
+			    echo "Usage: $PROGNAME --help"
+			    exit $STATE_UNKNOWN
+			    ;;
+	esac
+	shift
+done
+
+#Host is not optional
+if [ "$Host" == "" ]; then
+    exit $STATE_UNKNOWN
+fi
+
+
+#Set default values
+if [ "$protocol" == "" ]; then
+    protocol=" -v 2c"
+    community=" -c public"
+fi
+		
+name=$(snmpget $community$authproto$authpassword$privpasswd$protocol$secname$seclevel$privproto -Oqv $Host 1.3.6.1.2.1.1.5.0)
+if [ $? -ne "0" ] ; then
+    echo "Cannot get SNMP information"
+    exit $STATE_UNKNOWN
+fi
+serial=$(snmpget $community$authproto$authpassword$privpasswd$protocol$secname$seclevel$privproto -Oqv $Host .1.3.6.1.4.1.14988.1.1.4.1.0)
+if [ $? -ne "0" ] ; then
+    echo "Cannot get SNMP information"
+    exit $STATE_UNKNOWN
+fi
+model=$(snmpget $community$authproto$authpassword$privpasswd$protocol$secname$seclevel$privproto -Oqv $Host .1.3.6.1.2.1.47.1.1.1.1.2)
+if [ $? -ne "0" ] ; then
+    echo "Cannot get SNMP information"
+    exit $STATE_UNKNOWN
+fi
+
+cpuused=$(snmpget $community$authproto$authpassword$privpasswd$protocol$secname$seclevel$privproto -Oqv $Host .1.3.6.1.2.1.25.3.3.1.2.1)
+if [ $? -ne "0" ] ; then
+    echo "Cannot get SNMP information"
+    exit $STATE_UNKNOWN
+fi
+
+
+echo "SNMP - $name (SN: $serial, Model: $model) Using $cpuused.0% of cpu. | cpu_percent=$cpuused"
+if [ $cpuused -gt $critical ];then
+    exit $STATE_CRITICAL
+elif [ $cpuused -gt $warning ];then
+    exit $STATE_WARNING
+else
+    exit $STATE_OK
+fi
